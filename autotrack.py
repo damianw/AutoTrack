@@ -10,6 +10,7 @@ from functools import *
 from datetime import datetime
 from pprint import pprint as pp
 from threading import Thread, Event
+from sqlalchemy.sql import expression
 from flask import Flask, request, session, g, redirect, url_for, abort, render_template, flash, jsonify
 
 import config
@@ -46,9 +47,15 @@ def _get_active_devices():
   active_macs = [entry['mac'].upper() for entry in _get_status()['arp_table']]
   return db.query(devices_t.select().where(devices_t.c.mac.in_(active_macs)))
 
+def _get_recent_devices():
+  cols = [history_t.c.timestamp.distinct()]
+  since = datetime.now() - timedelta(minutes=2)
+  expr = expression.select(cols).where(history_t.c.timestamp > since)
+  return db.query(devices_t.select().where(devices_t.c.id.in_(db.query(expr))))
+
 @app.route('/api/v1.0/people/home', methods=['GET'])
 def get_people_home():
-  devs = list(_get_active_devices())
+  devs = _get_recent_devices()
   ppl = unique_everseen(_get_people_home(devs), lambda p: p['id'])
   result = {'people': [dict(p, devices=list(filter(lambda dev: dev['people_id'] == p['id'], devs))) for p in ppl]}
   return jsonify(result)
