@@ -91,6 +91,6 @@ if __name__ == '__main__':
   worker = HistoryWorker(event)
   try:
     worker.start()
-    app.run(debug=True)
+    app.run('0.0.0.0', debug=True)
   except:
     event.set()
