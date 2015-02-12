@@ -4,9 +4,12 @@ import ddwrt
 import dataset
 import requests
 from tools import *
+from time import sleep
 from itertools import *
 from functools import *
+from datetime import datetime
 from pprint import pprint as pp
+from threading import Thread, Event
 from flask import Flask, request, session, g, redirect, url_for, abort, render_template, flash, jsonify
 
 import config
@@ -19,6 +22,8 @@ people = db['people']
 people_t = people.table
 devices = db['devices']
 devices_t = devices.table
+history = db['history']
+history_t = history.table
 
 def _get_status():
   return ddwrt.parse(requests.get(config.URL, auth=(config.DD_USERNAME, config.DD_PASSWORD)).text)
@@ -37,10 +42,13 @@ def _get_people_home(devs):
     if not p: continue
     if p['home_when_{}'.format(d['device_type'])]: yield p
 
+def _get_active_devices():
+  active_macs = [entry['mac'].upper() for entry in _get_status()['arp_table']]
+  return db.query(devices_t.select().where(devices_t.c.mac.in_(active_macs)))
+
 @app.route('/api/v1.0/people/home', methods=['GET'])
 def get_people_home():
-  active_macs = [entry['mac'].upper() for entry in _get_status()['arp_table']]
-  devs = list(db.query(devices_t.select().where(devices_t.c.mac.in_(active_macs))))
+  devs = list(_get_active_devices())
   ppl = unique_everseen(_get_people_home(devs), lambda p: p['id'])
   result = {'people': [dict(p, devices=list(filter(lambda dev: dev['people_id'] == p['id'], devs))) for p in ppl]}
   return jsonify(result)
@@ -59,5 +67,24 @@ def get_status():
 def get_arp_table():
   return jsonify({'arp_table': _get_status()['arp_table']})
 
+class HistoryWorker(Thread):
+
+  def __init__(self, event):
+    Thread.__init__(self)
+    self.event = event
+
+  def run(self):
+    while not event.isSet():
+      devs = _get_active_devices()
+      time = datetime.now()
+      history.insert_many({'devices_id': d['id'], 'timestamp': time} for d in devs)
+      sleep(5)
+
 if __name__ == '__main__':
-  app.run(debug=True)
+  event = Event()
+  worker = HistoryWorker(event)
+  try:
+    worker.start()
+    app.run(debug=True)
+  except:
+    event.set()
