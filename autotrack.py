@@ -35,7 +35,6 @@ def _get_people_home(devs):
   for d in devs:
     p = people.find_one(id=d['people_id'])
     if not p: continue
-    # yield p
     if p['home_when_{}'.format(d['device_type'])]: yield p
 
 @app.route('/api/v1.0/people/home', methods=['GET'])
@@ -43,7 +42,6 @@ def get_people_home():
   active_macs = [entry['mac'].upper() for entry in _get_status()['arp_table']]
   devs = list(db.query(devices_t.select().where(devices_t.c.mac.in_(active_macs))))
   ppl = unique_everseen(_get_people_home(devs), lambda p: p['id'])
-  print(ppl)
   result = {'people': [dict(p, devices=list(filter(lambda dev: dev['people_id'] == p['id'], devs))) for p in ppl]}
   return jsonify(result)
 
@@ -60,7 +58,6 @@ def get_status():
 @app.route('/api/v1.0/status/arp', methods=['GET'])
 def get_arp_table():
   return jsonify({'arp_table': _get_status()['arp_table']})
-
 
 if __name__ == '__main__':
   app.run(debug=True)
