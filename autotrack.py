@@ -7,10 +7,10 @@ from tools import *
 from time import sleep
 from itertools import *
 from functools import *
-from datetime import datetime
 from pprint import pprint as pp
 from threading import Thread, Event
 from sqlalchemy.sql import expression
+from datetime import datetime, timedelta
 from flask import Flask, request, session, g, redirect, url_for, abort, render_template, flash, jsonify
 
 import config
@@ -45,13 +45,14 @@ def _get_people_home(devs):
 
 def _get_active_devices():
   active_macs = [entry['mac'].upper() for entry in _get_status()['arp_table']]
-  return db.query(devices_t.select().where(devices_t.c.mac.in_(active_macs)))
+  return list(db.query(devices_t.select().where(devices_t.c.mac.in_(active_macs))))
 
 def _get_recent_devices():
-  cols = [history_t.c.timestamp.distinct()]
-  since = datetime.now() - timedelta(minutes=2)
+  cols = [history_t.c.devices_id.distinct()]
+  since = datetime.now() - timedelta(minutes=5)
   expr = expression.select(cols).where(history_t.c.timestamp > since)
-  return db.query(devices_t.select().where(devices_t.c.id.in_(db.query(expr))))
+  dev_ids = [hist['devices_id'] for hist in db.query(expr)]
+  return list(db.query(devices_t.select().where(devices_t.c.id.in_(dev_ids))))
 
 @app.route('/api/v1.0/people/home', methods=['GET'])
 def get_people_home():
@@ -62,9 +63,7 @@ def get_people_home():
 
 @app.route('/api/v1.0/devices/home', methods=['GET'])
 def get_devices_home():
-  macs = [entry['mac'].upper() for entry in _get_status()['arp_table']]
-  devs = db.query(devices_t.select().where(devices_t.c.mac.in_(macs)))
-  return jsonify({'devices': list(devs)})
+  return jsonify({'devices': _get_recent_devices()})
 
 @app.route('/api/v1.0/status', methods=['GET'])
 def get_status():
@@ -85,7 +84,7 @@ class HistoryWorker(Thread):
       devs = _get_active_devices()
       time = datetime.now()
       history.insert_many({'devices_id': d['id'], 'timestamp': time} for d in devs)
-      sleep(5)
+      sleep(30)
 
 if __name__ == '__main__':
   event = Event()
